@@ -113,7 +113,7 @@ NDIS_SPIN_LOCK g_FilterArrayLock; //The lock for adapter filter module list.
 //
 PDEVICE_OBJECT g_LoopbackDevObj = NULL;
 
-NDIS_STRING g_LoopbackAdapterName;
+NDIS_STRING g_LoopbackAdapterName = {0};
 NDIS_STRING g_LoopbackRegValueName = NDIS_STRING_CONST("LoopbackAdapter");
 
 extern HANDLE g_WFPEngineHandle;
@@ -128,8 +128,6 @@ NDIS_STRING g_BlockRxRegValueName = NDIS_STRING_CONST("BlockRxAdapters");
 
 #endif
 
-NDIS_STRING g_NPF_Prefix;
-NDIS_STRING g_NPF_Prefix_WIFI;
 NDIS_STRING devicePrefix = NDIS_STRING_CONST("\\Device\\");
 NDIS_STRING symbolicLinkPrefix = NDIS_STRING_CONST("\\DosDevices\\");
 NDIS_STRING tcpLinkageKeyName = NDIS_STRING_CONST("\\Registry\\Machine\\System"
@@ -317,11 +315,6 @@ DriverEntry(
 // 	}
 // 	TRACE_MESSAGE1(PACKET_DEBUG_LOUD, "g_Dot11SupportMode (based on RegistryPath) = %d\n", g_Dot11SupportMode);
 
-	NdisInitUnicodeString(&g_NPF_Prefix, NPF_DEVICE_NAMES_PREFIX_WIDECHAR);
-
-	if (g_Dot11SupportMode)
-		NdisInitUnicodeString(&g_NPF_Prefix_WIFI, NPF_DEVICE_NAMES_PREFIX_WIDECHAR_WIFI);
-
 	//
 	// Initialize several CPU-related functions.
 	//
@@ -356,6 +349,7 @@ DriverEntry(
 	DriverObject->MajorFunction[IRP_MJ_WRITE] = NPF_Write;
 	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = NPF_IoControl;
 
+#if 0
 	bindP = getAdaptersList();
 
 	if (bindP == NULL)
@@ -385,6 +379,7 @@ DriverEntry(
 		if (g_Dot11SupportMode)
 			NPF_CreateDevice(DriverObject, &AdapterName, &g_NPF_Prefix_WIFI, TRUE);
 	}
+#endif
 
 #ifdef HAVE_WFP_LOOPBACK_SUPPORT
 	// Use Winsock Kernel (WSK) to send loopback packets.
@@ -456,12 +451,13 @@ DriverEntry(
 
 	TRACE_EXIT();
 	return STATUS_SUCCESS;
-
+#if 0
 RegistryError:
 
 	Status = STATUS_UNSUCCESSFUL;
 	TRACE_EXIT();
 	return(Status);
+#endif
 }
 
 //-------------------------------------------------------------------
@@ -961,7 +957,6 @@ BOOLEAN
 	NPF_CreateDevice(
 	IN OUT PDRIVER_OBJECT DriverObject,
 	IN PUNICODE_STRING AdapterName,
-	IN PUNICODE_STRING NPF_Prefix,
 	IN BOOLEAN Dot11
 	)
 {
@@ -969,19 +964,20 @@ BOOLEAN
 	PDEVICE_OBJECT devObjP;
 	UNICODE_STRING deviceName;
 	UNICODE_STRING deviceSymLink;
+	NDIS_STRING NPF_Prefix;
 
 	TRACE_ENTER();
 
 	IF_LOUD(DbgPrint("\n\ncreateDevice for MAC %ws\n", AdapterName->Buffer););
-	if (RtlCompareMemory(AdapterName->Buffer, devicePrefix.Buffer, devicePrefix.Length) < devicePrefix.Length)
-	{
+	if (!RtlPrefixUnicodeString(&devicePrefix, AdapterName, TRUE)) {
 		TRACE_EXIT();
 		return FALSE;
 	}
 
+	NdisInitUnicodeString(&NPF_Prefix, Dot11 ? NPF_DEVICE_NAMES_PREFIX_WIDECHAR_WIFI : NPF_DEVICE_NAMES_PREFIX_WIDECHAR);
 	deviceName.Length = 0;
-	deviceName.MaximumLength = (USHORT)(AdapterName->Length + NPF_Prefix->Length + sizeof(UNICODE_NULL));
-	deviceName.Buffer = ExAllocatePoolWithTag(PagedPool, deviceName.MaximumLength, '3PWA');
+	deviceName.MaximumLength = (USHORT)(AdapterName->Length + NPF_Prefix.Length + sizeof(UNICODE_NULL));
+	deviceName.Buffer = ExAllocatePoolWithTag(NonPagedPool, deviceName.MaximumLength, '3PWA');
 
 	if (deviceName.Buffer == NULL)
 	{
@@ -990,7 +986,7 @@ BOOLEAN
 	}
 
 	deviceSymLink.Length = 0;
-	deviceSymLink.MaximumLength = (USHORT)(AdapterName->Length - devicePrefix.Length + symbolicLinkPrefix.Length + NPF_Prefix->Length + sizeof(UNICODE_NULL));
+	deviceSymLink.MaximumLength = (USHORT)(AdapterName->Length - devicePrefix.Length + symbolicLinkPrefix.Length + NPF_Prefix.Length + sizeof(UNICODE_NULL));
 
 	deviceSymLink.Buffer = ExAllocatePoolWithTag(NonPagedPool, deviceSymLink.MaximumLength, '3PWA');
 
@@ -1002,11 +998,11 @@ BOOLEAN
 	}
 
 	RtlAppendUnicodeStringToString(&deviceName, &devicePrefix);
-	RtlAppendUnicodeStringToString(&deviceName, NPF_Prefix);
+	RtlAppendUnicodeStringToString(&deviceName, &NPF_Prefix);
 	RtlAppendUnicodeToString(&deviceName, AdapterName->Buffer + devicePrefix.Length / sizeof(WCHAR));
 
 	RtlAppendUnicodeStringToString(&deviceSymLink, &symbolicLinkPrefix);
-	RtlAppendUnicodeStringToString(&deviceSymLink, NPF_Prefix);
+	RtlAppendUnicodeStringToString(&deviceSymLink, &NPF_Prefix);
 	RtlAppendUnicodeToString(&deviceSymLink, AdapterName->Buffer + devicePrefix.Length / sizeof(WCHAR));
 
 	IF_LOUD(DbgPrint("Creating device name: %ws\n", deviceName.Buffer);)
@@ -1067,7 +1063,7 @@ BOOLEAN
 	// Determine whether this is our loopback adapter for the device.
 	if (g_LoopbackAdapterName.Buffer != NULL)
 	{
-		if (RtlCompareMemory(g_LoopbackAdapterName.Buffer, AdapterName->Buffer, AdapterName->Length) == AdapterName->Length)
+		if (RtlEqualUnicodeString(&g_LoopbackAdapterName, AdapterName, TRUE))
 		{
 			g_LoopbackDevObj = devObjP;
 		}

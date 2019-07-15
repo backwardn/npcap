@@ -1711,12 +1711,16 @@ NPF_AttachAdapter(
 			return returnStatus;
 		}
 
+		if (!NPF_CreateDevice(FilterDriverObject, &pFiltMod->AdapterName, bDot11)) {
+			returnStatus = NDIS_STATUS_RESOURCES;
+			break;
+		}
+
 #ifdef HAVE_WFP_LOOPBACK_SUPPORT
 		// Determine whether this is our loopback adapter
 		if (g_LoopbackAdapterName.Buffer != NULL)
 		{
-			if (RtlCompareMemory(g_LoopbackAdapterName.Buffer + devicePrefix.Length / 2, AttachParameters->BaseMiniportName->Buffer + devicePrefix.Length / 2,
-				AttachParameters->BaseMiniportName->Length - devicePrefix.Length) == AttachParameters->BaseMiniportName->Length - devicePrefix.Length)
+			if (RtlEqualUnicodeString(&g_LoopbackAdapterName, &pFiltMod->AdapterName, TRUE))
 			{
 				pFiltMod->Loopback = TRUE;
 			}
